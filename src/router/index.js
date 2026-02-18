@@ -1,25 +1,73 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '../views/HomeView.vue'
+import LoginView from '../views/Login.vue'
 
 const routes = [
   {
     path: '/',
     name: 'home',
-    component: HomeView
+    component: () => import('@/views/Home.vue'), // 首页
+    meta: { title: '大麦 2.0 - 发现精彩' }
   },
   {
-    path: '/about',
-    name: 'about',
-    // route level code-splitting
-    // this generates a separate chunk (about.[hash].js) for this route
-    // which is lazy-loaded when the route is visited.
-    component: () => import(/* webpackChunkName: "about" */ '../views/AboutView.vue')
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/Login.vue'),
+    meta: { title: '登录' }
+  },
+  {
+    path: '/search',
+    name: 'search',
+    component: () => import('@/views/Search.vue')
+  },
+  {
+    path: '/category',
+    name: 'category',
+    component: () => import('@/views/Category.vue')
+  },
+  {
+    path: '/orders',
+    name: 'orders',
+    component: () => import('@/views/Orders.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/detail/:id',
+    name: 'detail',
+    component: () => import('@/views/Detail.vue')
+  },
+  {
+    path: '/profile',
+    name: 'profile',
+    component: () => import('@/views/Profile.vue'),
+    meta: { requiresAuth: true } // 需要登录才能访问
+  },
+  // 管理端路由预留
+  {
+    path: '/admin',
+    name: 'admin',
+    component: () => import('@/views/admin/Dashboard.vue'),
+    redirect: '/admin/users',
+    children: [
+      { path: 'users', component: () => import('@/views/admin/Users.vue') },
+      { path: 'events', component: () => import('@/views/admin/Events.vue') }
+    ],
+    meta: { requiresAdmin: true }
   }
 ]
 
 const router = createRouter({
   history: createWebHistory(process.env.BASE_URL),
   routes
+})
+
+// 路由守卫：检查登录状态
+router.beforeEach((to, from, next) => {
+  const token = localStorage.getItem('token')
+  if (to.meta.requiresAuth && !token) {
+    next('/login')
+  } else {
+    next()
+  }
 })
 
 export default router
