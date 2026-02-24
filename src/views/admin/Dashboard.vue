@@ -21,7 +21,7 @@
             <el-icon><Ticket /></el-icon>
             <span>演出管理</span>
           </el-menu-item>
-          <el-menu-item index="/">
+          <el-menu-item index="/home">
             <el-icon><Back /></el-icon>
             <span>返回前台</span>
           </el-menu-item>

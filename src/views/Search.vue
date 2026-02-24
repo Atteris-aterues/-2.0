@@ -78,14 +78,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import NavBar from '@/components/NavBar.vue'
 import { Search, Calendar, Location } from '@element-plus/icons-vue'
-
-// 导入本地图片资源
-import eventA from '@/assets/a.png'
-import eventB from '@/assets/b.png'
-import eventC from '@/assets/c.png'
-import eventD from '@/assets/d.png'
-import eventE from '@/assets/e.png'
-import eventF from '@/assets/f.png'
+import { ElMessage } from 'element-plus'
+import { searchShows, queryShows } from '@/api/show'
+import defaultImage from '@/assets/logo.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -97,19 +92,89 @@ const currentCity = ref('全部')
 const currentCategory = ref('全部')
 const currentTime = ref('全部')
 const sortBy = ref('recommend')
+const loading = ref(false)
 
 const cities = ['全部', '上海', '北京', '广州', '深圳', '杭州', '成都']
 const categories = ['全部', '演唱会', '话剧歌剧', '体育', '音乐会', '儿童亲子']
 const times = ['全部', '今天', '明天', '本周末', '一个月内']
 
-const events = ref([
-  { id: 1, title: '【上海】周杰伦“嘉年华”世界巡回演唱会', venue: '上海体育场', date: '2026.05.20', price: 580, category: '演唱会', city: '上海', image: eventA, hot: 100 },
-  { id: 2, title: '【北京】音乐剧《罗密欧与朱丽叶》', venue: '天桥艺术中心-大剧场', date: '2026.06.12', price: 180, category: '话剧歌剧', city: '北京', image: eventB, hot: 80 },
-  { id: 3, title: '【广州】2026 广州超级音乐节', venue: '广州海心沙亚运公园', date: '2026.04.15', price: 399, category: '音乐会', city: '广州', image: eventC, hot: 90 },
-  { id: 4, title: '【深圳】CBA联赛 深圳马可波罗 vs 广东东莞大益', venue: '深圳大运中心体育馆', date: '2026.03.10', price: 100, category: '体育', city: '深圳', image: eventD, hot: 70 },
-  { id: 5, title: '【上海】陈奕迅 Fear and Dreams 演唱会', venue: '梅赛德斯-奔驰文化中心', date: '2026.07.10', price: 680, category: '演唱会', city: '上海', image: eventE, hot: 95 },
-  { id: 6, title: '【成都】李荣浩“纵横四海”巡回演唱会', venue: '凤凰山体育公园专业足球场', date: '2026.08.20', price: 380, category: '演唱会', city: '成都', image: eventF, hot: 85 }
-])
+const events = ref([])
+
+const timeToRange = (t) => {
+  const now = new Date()
+  const start = new Date(now)
+  const end = new Date(now)
+  if (t === '今天') {
+    start.setHours(0, 0, 0, 0)
+    end.setHours(23, 59, 59, 999)
+  } else if (t === '明天') {
+    start.setDate(start.getDate() + 1)
+    end.setDate(end.getDate() + 1)
+    start.setHours(0, 0, 0, 0)
+    end.setHours(23, 59, 59, 999)
+  } else if (t === '本周末') {
+    const day = now.getDay()
+    const toSat = (6 - day + 7) % 7
+    const toSun = (7 - day + 7) % 7
+    start.setDate(start.getDate() + toSat)
+    end.setDate(end.getDate() + toSun)
+    start.setHours(0, 0, 0, 0)
+    end.setHours(23, 59, 59, 999)
+  } else if (t === '一个月内') {
+    start.setHours(0, 0, 0, 0)
+    end.setMonth(end.getMonth() + 1)
+    end.setHours(23, 59, 59, 999)
+  } else {
+    return {}
+  }
+  return { startTime: start.toISOString(), endTime: end.toISOString() }
+}
+
+const fetchResults = async () => {
+  loading.value = true
+  try {
+    let res
+    if (searchQuery.value && searchQuery.value.trim()) {
+      res = await searchShows(searchQuery.value.trim())
+    } else {
+      const params = {
+        pageNum: 1,
+        pageSize: 20
+      }
+      if (currentCity.value !== '全部') params.city = currentCity.value
+      if (currentCategory.value !== '全部') params.category = currentCategory.value
+      const range = timeToRange(currentTime.value)
+      Object.assign(params, range)
+      res = await queryShows(params)
+    }
+    let list = []
+    if (Array.isArray(res)) {
+      list = res
+    } else if (res && res.data && Array.isArray(res.data)) {
+      list = res.data
+    } else if (res && res.records && Array.isArray(res.records)) {
+      list = res.records
+    } else if (res && res.data && res.data.records && Array.isArray(res.data.records)) {
+      list = res.data.records
+    }
+    events.value = list.map(item => ({
+      id: item.id,
+      title: item.title,
+      venue: item.venue || item.venueName || '未知场馆',
+      date: item.showTime || item.date || '待定',
+      price: item.minPrice || item.price || 0,
+      category: item.category || '其它',
+      city: item.city || '全国',
+      image: item.coverImage || item.image || defaultImage,
+      hot: item.hot || 0
+    }))
+  } catch (error) {
+    console.error('Search/query error:', error)
+    ElMessage.error('获取演出列表失败')
+  } finally {
+    loading.value = false
+  }
+}
 
 const filteredEvents = computed(() => {
   let result = events.value.filter(e => {
@@ -144,10 +209,16 @@ const highlight = (text) => {
 
 watch(() => route.query.q, (newVal) => {
   searchQuery.value = newVal || ''
+  fetchResults()
+})
+
+watch([currentCity, currentCategory, currentTime], () => {
+  fetchResults()
 })
 
 onMounted(() => {
   window.scrollTo(0, 0)
+  fetchResults()
 })
 </script>
 
@@ -358,4 +429,3 @@ onMounted(() => {
   font-weight: 600;
 }
 </style>
-

@@ -122,8 +122,10 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { getShowDetails } from '@/api/show'
+import { createOrder } from '@/api/order'
 import NavBar from '@/components/NavBar.vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Calendar, Location, Share, Star } from '@element-plus/icons-vue'
 
 // 导入本地图片资源
@@ -133,6 +135,8 @@ import eventC from '@/assets/c.png'
 import eventD from '@/assets/d.png'
 import eventE from '@/assets/e.png'
 import eventF from '@/assets/f.png'
+// 默认图
+import defaultImage from '@/assets/logo.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -154,10 +158,14 @@ const allEvents = {
   '6': { title: '【成都】李荣浩“纵横四海”巡回演唱会', image: eventF, city: '成都', category: '演唱会', venue: '凤凰山体育公园专业足球场', date: '2026.08.20', minPrice: 380, maxPrice: 1580 }
 }
 
-const currentEvent = computed(() => allEvents[route.params.id] || allEvents['1'])
-
 const eventData = ref({
-  ...currentEvent.value,
+  title: '加载中...',
+  image: defaultImage,
+  category: '',
+  venue: '',
+  date: '',
+  minPrice: 0,
+  maxPrice: 0,
   sessions: ['2026-05-20 周三 19:30', '2026-05-21 周四 19:30', '2026-05-23 周六 19:30', '2026-05-24 周日 19:30'],
   prices: [580, 980, 1280, 1580, 2580],
   description: [
@@ -166,7 +174,7 @@ const eventData = ref({
     '不仅有视听层面的极致享受，更是一场充满惊喜的互动体验。',
     '温馨提示：本项目要求实名制入场，请务必携带本人有效身份证件。'
   ],
-  detailImages: [currentEvent.value.image],
+  detailImages: [],
   notices: [
     { title: '实名制购票', content: '本项目需实名制购票，购票时请提供观演人有效身份证件。' },
     { title: '退票规则', content: '本项目支持有条件退票，具体规则请查看退票政策。' },
@@ -174,30 +182,131 @@ const eventData = ref({
   ]
 })
 
-const handleBuy = () => {
-  if (!userStore.token) {
-    ElMessage.warning('请先登录')
-    router.push('/login')
-    return
-  }
-  ElMessage.success('订单已提交，正在为您锁定座位...')
-  setTimeout(() => {
-    router.push('/orders')
-  }, 1500)
-}
-
 const toggleFavorite = () => {
   isFavorite.value = !isFavorite.value
   ElMessage.success(isFavorite.value ? '收藏成功' : '已取消收藏')
 }
 
-const handleLogout = () => {
-  userStore.logout()
-  router.push('/login')
+const handleBuy = () => {
+  if (!userStore.token) {
+    ElMessage.warning('请先登录')
+    router.push(`/login?redirect=${route.fullPath}`)
+    return
+  }
+  
+  ElMessageBox.confirm(
+    `确认购买 ${eventData.value.title} \n${eventData.value.sessions[selectedSession.value]} \n${ticketCount.value}张 ￥${eventData.value.prices[selectedPrice.value]} 的票吗？\n总价：￥${eventData.value.prices[selectedPrice.value] * ticketCount.value}`,
+    '购票确认',
+    {
+      confirmButtonText: '确认支付',
+      cancelButtonText: '取消',
+      type: 'info',
+    }
+  )
+    .then(async () => {
+      try {
+        const loading = ElLoading.service({
+          text: '正在创建订单...',
+          lock: true
+        })
+        
+        // 调用创建订单接口
+        // 注意：这里假设后端需要 showId 和 quantity
+        // 如果需要具体场次(sessionId)或票档(priceId)，需要根据实际接口调整
+        const res = await createOrder({
+          showId: route.params.id,
+          quantity: ticketCount.value,
+          // 预留字段，如果后端支持场次和票档
+          // sessionId: eventData.value.sessions[selectedSession.value].id,
+          // priceId: eventData.value.prices[selectedPrice.value].id
+        })
+        
+        loading.close()
+        
+        if (res && res.success) {
+          ElMessage.success('下单成功！')
+          // 跳转到订单列表页或支付页
+          // 假设返回了 orderId
+          const orderId = res.data ? res.data.id : (res.order ? res.order.id : null)
+          if (orderId) {
+             // 可以跳转到支付页，这里暂时跳转到订单列表
+             router.push('/orders')
+          } else {
+             router.push('/orders')
+          }
+        } else {
+          ElMessage.error(res.message || '下单失败')
+        }
+      } catch (error) {
+        console.error('Create order error:', error)
+        ElMessage.error('下单异常，请稍后重试')
+      }
+    })
+    .catch(() => {
+      ElMessage.info('已取消')
+    })
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.scrollTo(0, 0)
+  const id = route.params.id
+  if (!id) return
+
+  try {
+    const res = await getShowDetails(id)
+    console.log('Detail API Response:', res)
+    
+    // 统一解析详情数据
+    let data = null
+    if (res && res.id) {
+      data = res
+    } else if (res && res.data && res.data.id) {
+      data = res.data
+    } else if (res && res.data) {
+      // 有些接口可能返回 data 但 id 在更深层，或者 data 就是详情对象但没 id (少见)
+      data = res.data
+    }
+
+    if (data) {
+      eventData.value = {
+        ...eventData.value,
+        title: data.title || '未命名演出',
+        image: data.coverImage || data.image || defaultImage,
+        category: data.category || '演出',
+        venue: data.venue || '待定场馆',
+        date: data.showTime || '待定时间',
+        minPrice: data.minPrice || data.price || 0,
+        maxPrice: data.maxPrice || data.price || 0,
+        detailImages: [data.coverImage || data.image || defaultImage]
+      }
+      
+      // 如果后端返回了场次和票档信息，则覆盖默认值
+      if (data.sessions && Array.isArray(data.sessions)) {
+        // 兼容字符串数组或对象数组
+        eventData.value.sessions = data.sessions.map(s => (typeof s === 'object' ? (s.name || s.label || s.time || JSON.stringify(s)) : s))
+      } else {
+        // 如果没有场次信息，使用演出时间作为默认场次
+        eventData.value.sessions = [data.showTime || '默认场次']
+      }
+      
+      if (data.prices && Array.isArray(data.prices)) {
+        // 兼容数字数组或对象数组
+        eventData.value.prices = data.prices.map(p => (typeof p === 'object' ? (p.price || p.value || p.amount || 0) : p))
+      } else {
+        // 如果没有票档信息，使用价格作为默认票档
+        const price = data.price || data.minPrice || 0
+        eventData.value.prices = [price]
+      }
+      
+    } else {
+      console.warn('Detail API returned empty or invalid data')
+      // 不再使用 Mock 数据，直接显示错误提示或空白状态
+      ElMessage.warning('暂无演出详情数据')
+    }
+  } catch (error) {
+    console.error('Failed to fetch detail:', error)
+    ElMessage.error('获取演出详情失败')
+  }
 })
 </script>
 
@@ -545,4 +654,3 @@ onMounted(() => {
   line-height: 1.6;
 }
 </style>
-

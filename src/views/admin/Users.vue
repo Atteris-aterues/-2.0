@@ -166,7 +166,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { User, Sunny, Plus, Key, CaretTop, CaretBottom, Search } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '@/store/user'
+import { adminGetUsers, adminUpdateUser, adminUpdateUserStatus } from '@/api/user'
 
 // 动画效果
 onMounted(() => {
@@ -196,16 +199,39 @@ onMounted(() => {
   }
 })
 
-// 模拟数据
-const users = ref([
-  { id: 1001, username: 'Admin_Master', email: 'admin@damai.com', phone: '13800000000', role: 'admin', status: 'active', regDate: '2025-01-01', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin' },
-  { id: 1002, username: 'User_XiaoMing', email: 'xiaoming@qq.com', phone: '13811112222', role: 'user', status: 'active', regDate: '2025-01-10', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=XiaoMing' },
-  { id: 1003, username: 'Music_Lover', email: 'music@163.com', phone: '13833334444', role: 'vip', status: 'active', regDate: '2025-01-12', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Music' },
-  { id: 1004, username: 'Test_User', email: 'test@gmail.com', phone: '13855556666', role: 'user', status: 'disabled', regDate: '2025-01-15', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Test' },
-  { id: 1005, username: 'Concert_Goer', email: 'concert@outlook.com', phone: '13877778888', role: 'user', status: 'active', regDate: '2025-01-16', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Concert' },
-  { id: 1006, username: 'Ticket_Hunter', email: 'hunter@foxmail.com', phone: '13899990000', role: 'user', status: 'active', regDate: '2025-01-17', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Hunter' },
-  { id: 1007, username: 'Art_Fanatic', email: 'art@sina.com', phone: '13700001111', role: 'vip', status: 'active', regDate: '2025-01-18', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Art' },
-])
+const router = useRouter()
+const userStore = useUserStore()
+const users = ref([])
+const loading = ref(false)
+
+const fetchUsers = async () => {
+  loading.value = true
+  try {
+    const res = await adminGetUsers({ pageNum: 1, pageSize: 100 })
+    let records = []
+    if (Array.isArray(res)) {
+      records = res
+    } else if (res && res.records) {
+      records = res.records
+    } else if (res && res.data && res.data.records) {
+      records = res.data.records
+    }
+    users.value = records.map(u => ({
+      id: u.id,
+      username: u.username,
+      email: u.email || '',
+      phone: u.phone || '',
+      role: u.isAdmin ? 'admin' : 'user',
+      status: u.status === 1 ? 'active' : 'disabled',
+      regDate: u.createTime || '',
+      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username || 'User'}`
+    }))
+  } catch (e) {
+    ElMessage.error('获取用户列表失败')
+  } finally {
+    loading.value = false
+  }
+}
 
 // 状态变量
 const searchQuery = ref('')
@@ -264,23 +290,28 @@ const handleEdit = (row) => {
   dialogVisible.value = true
 }
 
-const saveForm = () => {
-  if (isEdit.value) {
-    const index = users.value.findIndex(u => u.id === form.value.id)
-    if (index > -1) users.value[index] = { ...form.value }
-    ElMessage.success('用户信息已更新')
-  } else {
-    const newUser = {
-      ...form.value,
-      id: Date.now(),
-      status: 'active',
-      regDate: new Date().toISOString().split('T')[0],
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${form.value.username}`
+const saveForm = async () => {
+  const loadingInstance = ElLoading.service({ text: '正在保存...', lock: true })
+  try {
+    if (isEdit.value && form.value.id) {
+      const payload = {
+        email: form.value.email,
+        phone: form.value.phone,
+        realName: form.value.username
+      }
+      const res = await adminUpdateUser(form.value.id, payload)
+      if (res && res.success) ElMessage.success('用户信息已更新')
+      else ElMessage.error(res?.message || '更新失败')
+    } else {
+      ElMessage.info('请在用户端进行注册，新用户将自动出现在列表')
     }
-    users.value.unshift(newUser)
-    ElMessage.success('用户创建成功')
+    dialogVisible.value = false
+    await fetchUsers()
+  } catch (e) {
+    ElMessage.error('保存异常')
+  } finally {
+    loadingInstance.close()
   }
-  dialogVisible.value = false
 }
 
 const toggleStatus = (row) => {
@@ -290,9 +321,20 @@ const toggleStatus = (row) => {
     cancelButtonText: '取消',
     type: row.status === 'active' ? 'warning' : 'info',
     customClass: 'glass-message-box'
-  }).then(() => {
-    row.status = row.status === 'active' ? 'disabled' : 'active'
-    ElMessage.success(`用户已${action}`)
+  }).then(async () => {
+    try {
+      const newStatus = row.status === 'active' ? 'disabled' : 'active'
+      const backendStatus = newStatus === 'active' ? 1 : 0
+      const res = await adminUpdateUserStatus(row.id, backendStatus)
+      if (res && res.success) {
+        row.status = newStatus
+        ElMessage.success(`用户已${action}`)
+      } else {
+        ElMessage.error(res?.message || '状态更新失败')
+      }
+    } catch (e) {
+      ElMessage.error('状态更新异常')
+    }
   })
 }
 
@@ -310,6 +352,13 @@ const handleCommand = (cmd, row) => {
       ElMessage.success('用户已彻底删除')
     })
   }
+  const isAdmin = userStore.userInfo?.isAdmin === true || userStore.userInfo?.role === 2
+  if (!isAdmin) {
+    ElMessage.warning('请使用管理员账号登录')
+    router.push('/login')
+    return
+  }
+  fetchUsers()
 }
 </script>
 

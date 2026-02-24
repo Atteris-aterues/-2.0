@@ -61,25 +61,21 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import NavBar from '@/components/NavBar.vue'
 import { Search, Microphone, MagicStick, Trophy, Headset, Sugar, Film, Service, Ticket } from '@element-plus/icons-vue'
-
-// 导入本地图片资源
-import eventA from '@/assets/a.png'
-import eventB from '@/assets/b.png'
-import eventC from '@/assets/c.png'
-import eventD from '@/assets/d.png'
-import eventE from '@/assets/e.png'
-import eventF from '@/assets/f.png'
+import { ElMessage } from 'element-plus'
+import { queryShows } from '@/api/show'
+import defaultImage from '@/assets/logo.png'
 
 const router = useRouter()
 const userStore = useUserStore()
 const currentCategory = ref(1)
 const currentCity = ref('全部')
 const sortBy = ref('recommend')
+const loading = ref(false)
 
 const categories = [
   { id: 1, name: '演唱会', icon: Microphone },
@@ -99,14 +95,44 @@ const sortOptions = [
   { label: '价格低到高', value: 'price' }
 ]
 
-const events = ref([
-  { id: 1, title: '【上海】周杰伦“嘉年华”世界巡回演唱会', venue: '上海体育场', date: '2026.05.20', price: 580, categoryId: 1, city: '上海', image: eventA, hot: 100 },
-  { id: 2, title: '【北京】音乐剧《罗密欧与朱丽叶》', venue: '天桥艺术中心', date: '2026.06.12', price: 180, categoryId: 2, city: '北京', image: eventB, hot: 80 },
-  { id: 3, title: '【广州】2026 广州超级音乐节', venue: '广州海心沙亚运公园', date: '2026.04.15', price: 399, categoryId: 4, city: '广州', image: eventC, hot: 90 },
-  { id: 4, title: '【深圳】CBA联赛 深圳马可波罗 vs 广东东莞大益', venue: '深圳大运中心体育馆', date: '2026.03.10', price: 100, categoryId: 3, city: '深圳', image: eventD, hot: 70 },
-  { id: 5, title: '【上海】陈奕迅 Fear and Dreams 演唱会', venue: '梅赛德斯-奔驰文化中心', date: '2026.07.10', price: 680, categoryId: 1, city: '上海', image: eventE, hot: 95 },
-  { id: 6, title: '【成都】李荣浩“纵横四海”巡回演唱会', venue: '凤凰山体育公园专业足球场', date: '2026.08.20', price: 380, categoryId: 1, city: '成都', image: eventF, hot: 85 }
-])
+const events = ref([])
+
+const fetchList = async () => {
+  loading.value = true
+  try {
+    const cat = categories.find(c => c.id === currentCategory.value)?.name
+    const params = { pageNum: 1, pageSize: 20 }
+    if (cat) params.category = cat
+    if (currentCity.value !== '全部') params.city = currentCity.value
+    const res = await queryShows(params)
+    let list = []
+    if (Array.isArray(res)) {
+      list = res
+    } else if (res && res.data && Array.isArray(res.data)) {
+      list = res.data
+    } else if (res && res.records && Array.isArray(res.records)) {
+      list = res.records
+    } else if (res && res.data && res.data.records && Array.isArray(res.data.records)) {
+      list = res.data.records
+    }
+    events.value = list.map(item => ({
+      id: item.id,
+      title: item.title,
+      venue: item.venue || item.venueName || '未知场馆',
+      date: item.showTime || item.date || '待定',
+      price: item.minPrice || item.price || 0,
+      categoryId: currentCategory.value,
+      city: item.city || '全国',
+      image: item.coverImage || item.image || defaultImage,
+      hot: item.hot || 0
+    }))
+  } catch (error) {
+    console.error('Query category error:', error)
+    ElMessage.error('获取分类演出失败')
+  } finally {
+    loading.value = false
+  }
+}
 
 const filteredEvents = computed(() => {
   let result = events.value.filter(e => {
@@ -125,6 +151,14 @@ const filteredEvents = computed(() => {
   }
 
   return result
+})
+
+watch([currentCategory, currentCity], () => {
+  fetchList()
+})
+
+onMounted(() => {
+  fetchList()
 })
 </script>
 

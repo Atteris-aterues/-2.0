@@ -3,7 +3,7 @@
     <div class="nav-content">
       <!-- 左侧：Logo、城市选择、链接 -->
       <div class="nav-left">
-        <img src="../assets/logo.png" alt="logo" class="logo" @click="router.push('/')">
+        <img src="../assets/logo.png" alt="logo" class="logo" @click="router.push('/home')">
         
         <el-dropdown v-if="showCitySelector" trigger="click" @command="handleCityChange">
           <div class="city-selector">
@@ -21,7 +21,7 @@
         </el-dropdown>
 
         <div class="nav-links">
-          <router-link to="/" :class="{ active: route.path === '/' }">首页</router-link>
+          <router-link to="/home" :class="{ active: route.path === '/home' }">首页</router-link>
           <router-link to="/category" :class="{ active: route.path === '/category' }">分类</router-link>
           <router-link to="/search" :class="{ active: route.path.startsWith('/search') }">列表</router-link>
         </div>

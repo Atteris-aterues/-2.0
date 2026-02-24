@@ -4,6 +4,10 @@ import LoginView from '../views/Login.vue'
 const routes = [
   {
     path: '/',
+    redirect: '/login'
+  },
+  {
+    path: '/home',
     name: 'home',
     component: () => import('@/views/Home.vue'), // 首页
     meta: { title: '大麦 2.0 - 发现精彩' }
@@ -41,6 +45,12 @@ const routes = [
     component: () => import('@/views/Profile.vue'),
     meta: { requiresAuth: true } // 需要登录才能访问
   },
+  {
+    path: '/address',
+    name: 'address',
+    component: () => import('@/views/Address.vue'),
+    meta: { requiresAuth: true }
+  },
   // 管理端路由预留
   {
     path: '/admin',
@@ -65,6 +75,8 @@ router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
   if (to.meta.requiresAuth && !token) {
     next('/login')
+  } else if (to.path === '/login' && token) {
+    next('/home')
   } else {
     next()
   }
