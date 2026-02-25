@@ -5,18 +5,19 @@
 
     <main class="main-content">
       <div class="profile-glass-card">
-        <div class="user-header">
+        <div class="user-header" v-loading="loading">
           <div class="avatar-wrapper">
-            <el-avatar :size="100" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
+            <el-avatar :size="100" :src="userInfo.avatar" />
             <div class="edit-badge"><el-icon><Edit /></el-icon></div>
           </div>
           <div class="user-meta">
-            <h2 class="username">大麦用户_1234</h2>
+            <h2 class="username">{{ userInfo.username }}</h2>
             <div class="user-tags">
-              <span class="tag">普通会员</span>
-              <span class="tag">实名认证</span>
+              <span class="tag">{{ userInfo.level }}</span>
+              <span class="tag" v-if="userInfo.isRealName">实名认证</span>
+              <span class="tag" v-else>未实名</span>
             </div>
-            <p class="phone-mask">138****0000</p>
+            <p class="phone-mask">{{ userInfo.phone || '暂无手机号' }}</p>
           </div>
         </div>
 
@@ -48,7 +49,7 @@
               <span>常用观演人</span>
               <el-icon class="arrow"><ArrowRight /></el-icon>
             </div>
-            <div class="menu-item">
+            <div class="menu-item" @click="router.push('/address')">
               <div class="icon-box address"><el-icon><Location /></el-icon></div>
               <span>地址管理</span>
               <el-icon class="arrow"><ArrowRight /></el-icon>
@@ -76,9 +77,12 @@
 </template>
 
 <script setup>
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { getUserInfo } from '@/api/user'
 import NavBar from '@/components/NavBar.vue'
+import { ElMessage } from 'element-plus'
 import { 
   Ticket, Location, Service, MagicStick, 
   ArrowRight, User, Setting, Edit 
@@ -86,6 +90,41 @@ import {
 
 const router = useRouter()
 const userStore = useUserStore()
+
+const userInfo = ref({
+  username: '加载中...',
+  phone: '',
+  level: '普通会员',
+  avatar: 'https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png',
+  isRealName: false
+})
+
+const loading = ref(false)
+
+onMounted(async () => {
+  await fetchUserInfo()
+})
+
+const fetchUserInfo = async () => {
+  loading.value = true
+  try {
+    const res = await getUserInfo()
+    if (res && (res.id || res.userId)) {
+      userInfo.value = {
+        username: res.username || res.name || res.nickname || `用户${res.id}`,
+        phone: res.phone || res.mobile || '',
+        level: res.level || '普通会员',
+        avatar: res.avatar || userInfo.value.avatar,
+        isRealName: res.isRealName || false
+      }
+    }
+  } catch (error) {
+    console.error('Get user info error:', error)
+    ElMessage.error('获取用户信息失败')
+  } finally {
+    loading.value = false
+  }
+}
 
 const handleLogout = () => {
   userStore.logout()

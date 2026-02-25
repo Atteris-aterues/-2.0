@@ -44,7 +44,7 @@
               <div class="amount">￥{{ order.price * order.count }}</div>
             </div>
             <div class="order-actions">
-              <el-button v-if="order.status === 'unpaid'" type="primary" size="small">立即支付</el-button>
+              <el-button v-if="order.status === 'unpaid'" type="primary" size="small" @click="handlePay(order.id)">立即支付</el-button>
               <el-button v-if="order.status === 'unpaid'" size="small" @click="handleCancel(order.id)">取消订单</el-button>
               <el-button v-if="order.status === 'upcoming'" size="small">查看票夹</el-button>
               <el-button size="small" @click="router.push(`/detail/${order.eventId}`)">项目详情</el-button>
@@ -59,61 +59,79 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { getOrderList, payOrder, cancelOrder } from '@/api/order'
 import NavBar from '@/components/NavBar.vue'
-import { ElMessageBox, ElMessage } from 'element-plus'
+import { ElMessageBox, ElMessage, ElLoading } from 'element-plus'
 import { Calendar, Location, ArrowRight } from '@element-plus/icons-vue'
 
 // 导入本地图片资源
 import eventA from '@/assets/a.png'
-import eventB from '@/assets/b.png'
-import eventC from '@/assets/c.png'
-import eventD from '@/assets/d.png'
+import defaultImage from '@/assets/logo.png'
 
 const router = useRouter()
 const userStore = useUserStore()
 const activeTab = ref('all')
 
-const orders = ref([
-  {
-    id: '202601180001',
-    eventId: 1,
-    title: '【上海】周杰伦“嘉年华”世界巡回演唱会',
-    image: eventA,
-    date: '2026.05.20 19:30',
-    venue: '上海体育场',
-    price: 1280,
-    count: 2,
-    orderTime: '2026-01-18 10:30',
-    status: 'unpaid'
-  },
-  {
-    id: '202601170042',
-    eventId: 2,
-    title: '【北京】音乐剧《罗密欧与朱丽叶》',
-    image: eventB,
-    date: '2026.06.12 19:30',
-    venue: '天桥艺术中心-大剧场',
-    price: 680,
-    count: 1,
-    orderTime: '2026-01-17 15:20',
-    status: 'upcoming'
-  },
-  {
-    id: '202601150089',
-    eventId: 3,
-    title: '【广州】2026 广州超级音乐节',
-    image: eventC,
-    date: '2026.04.15 14:00',
-    venue: '广州海心沙亚运公园',
-    price: 399,
-    count: 1,
-    orderTime: '2026-01-15 09:15',
-    status: 'finished'
+const orders = ref([])
+
+onMounted(async () => {
+  if (!userStore.token) {
+    ElMessage.warning('请先登录')
+    router.push('/login')
+    return
   }
-])
+  
+  await fetchOrders()
+})
+
+async function fetchOrders() {
+  try {
+    const res = await getOrderList({ pageNum: 1, pageSize: 20 })
+    console.log('Order List API Response:', res)
+    
+    let orderList = []
+    if (res && res.records) {
+      orderList = res.records
+    } else if (res && res.data && res.data.records) {
+      orderList = res.data.records
+    } else if (Array.isArray(res)) {
+      orderList = res
+    }
+
+    if (orderList.length > 0) {
+      orders.value = orderList.map(item => ({
+        id: item.id || item.orderId,
+        eventId: item.showId || 1, 
+        title: item.showName || item.title || '未知演出',
+        image: item.showImage || item.image || defaultImage,
+        date: item.showTime || '待定时间',
+        venue: item.venueName || item.venue || '待定场馆',
+        price: item.price || 0,
+        count: item.quantity || item.count || 1,
+        orderTime: item.createTime || item.orderTime,
+        status: mapStatus(item.status)
+      }))
+    } else {
+      orders.value = []
+    }
+  } catch (error) {
+    console.error('Failed to fetch orders:', error)
+    ElMessage.error('获取订单列表失败')
+  }
+}
+
+function mapStatus(status) {
+  // 根据后端返回的状态码映射到前端状态
+  // 假设后端返回数字或字符串
+  if (status === 0 || status === '0' || status === 'PENDING' || status === '待支付') return 'unpaid'
+  if (status === 1 || status === '1' || status === 'PAID' || status === '已支付') return 'upcoming'
+  if (status === 2 || status === '2' || status === 'USED' || status === '已使用') return 'finished'
+  if (status === 3 || status === '3' || status === 'CANCELLED' || status === '已取消') return 'canceled'
+  return 'unpaid' // 默认
+}
 
 const filteredOrders = computed(() => {
   if (activeTab.value === 'all') return orders.value
@@ -130,17 +148,48 @@ const getStatusText = (status) => {
   return map[status] || status
 }
 
+const handlePay = async (orderId) => {
+  try {
+    const loading = ElLoading.service({
+      text: '正在支付...',
+      lock: true
+    })
+    
+    const res = await payOrder(orderId)
+    loading.close()
+    
+    if (res && res.success) {
+      ElMessage.success('支付成功！')
+      // 刷新列表
+      await fetchOrders()
+    } else {
+      ElMessage.error(res?.message || '支付失败')
+    }
+  } catch (error) {
+    console.error('Pay error:', error)
+    ElMessage.error('支付异常，请稍后重试')
+  }
+}
+
 const handleCancel = (orderId) => {
   ElMessageBox.confirm('确定要取消该订单吗？', '提示', {
     confirmButtonText: '确定',
     cancelButtonText: '点错了',
     type: 'warning',
     customClass: 'glass-message-box'
-  }).then(() => {
-    const order = orders.value.find(o => o.id === orderId)
-    if (order) {
-      order.status = 'canceled'
-      ElMessage.success('订单已取消')
+  }).then(async () => {
+    try {
+      const res = await cancelOrder(orderId)
+      if (res && res.success) {
+        ElMessage.success('订单已取消')
+        // 刷新列表
+        await fetchOrders()
+      } else {
+        ElMessage.error(res?.message || '取消失败')
+      }
+    } catch (error) {
+      console.error('Cancel error:', error)
+      ElMessage.error('取消订单异常')
     }
   })
 }

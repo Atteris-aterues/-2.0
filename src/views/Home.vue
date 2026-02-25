@@ -224,9 +224,11 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { getShowHome, queryShows } from '@/api/show'
+import { ElMessage } from 'element-plus'
 import NavBar from '@/components/NavBar.vue'
 import { Search, Location, ArrowRight, Microphone, Service, MagicStick, Trophy, Sugar, Film, Headset, Ticket, ChatDotRound, CircleCheck, Umbrella, Goods, UserFilled, Wallet, Cellphone, OfficeBuilding, Iphone, Monitor } from '@element-plus/icons-vue'
 
@@ -234,6 +236,8 @@ import { Search, Location, ArrowRight, Microphone, Service, MagicStick, Trophy, 
 import banner1 from '@/assets/1.png'
 import banner2 from '@/assets/2.jpg'
 import banner3 from '@/assets/4.png'
+// 图片占位符，如果API返回没有图片则使用默认图
+import defaultImage from '@/assets/logo.png'
 
 // 导入本地推荐列表图片 (单字母名字)
 import eventA from '@/assets/a.png'
@@ -279,14 +283,86 @@ const categories = [
   { name: '其它', icon: Ticket, color: '#999' }
 ]
 
-const events = ref([
-  { id: 1, title: '【上海】周杰伦“嘉年华”世界巡回演唱会', venue: '上海体育场', date: '2026.05.20', price: 580, category: '演唱会', city: '上海', image: eventA },
-  { id: 2, title: '【北京】音乐剧《罗密欧与朱丽叶》', venue: '天桥艺术中心-大剧场', date: '2026.06.12', price: 180, category: '话剧歌剧', city: '北京', image: eventB },
-  { id: 3, title: '【广州】2026 广州超级音乐节', venue: '广州海心沙亚运公园', date: '2026.04.15', price: 399, category: '音乐会', city: '广州', image: eventC },
-  { id: 4, title: '【深圳】CBA联赛 深圳马可波罗 vs 广东东莞大益', venue: '深圳大运中心体育馆', date: '2026.03.10', price: 100, category: '体育', city: '深圳', image: eventD },
-  { id: 5, title: '【上海】陈奕迅 Fear and Dreams 演唱会', venue: '梅赛德斯-奔驰文化中心', date: '2026.07.10', price: 680, category: '演唱会', city: '上海', image: eventE },
-  { id: 6, title: '【成都】李荣浩“纵横四海”巡回演唱会', venue: '凤凰山体育公园专业足球场', date: '2026.08.20', price: 380, category: '演唱会', city: '成都', image: eventF }
-])
+const events = ref([])
+
+onMounted(async () => {
+  try {
+    const res = await getShowHome()
+    // 假设 res 是一个数组，或者 { data: [] }
+    console.log('API Response:', res)
+    
+    // 统一解析首页数据
+    let homeEvents = []
+    if (Array.isArray(res)) {
+      homeEvents = res
+    } else if (res && res.data && Array.isArray(res.data)) {
+      homeEvents = res.data
+    } else if (res && res.records && Array.isArray(res.records)) {
+      homeEvents = res.records
+    }
+
+    if (homeEvents.length > 0) {
+      events.value = homeEvents.map(item => ({
+        id: item.id,
+        title: item.title,
+        venue: item.venue || '未知场馆',
+        date: item.showTime || '待定',
+        price: item.minPrice || item.price || 0,
+        category: item.category || '其它',
+        city: item.city || '全国',
+        image: item.coverImage || item.image || defaultImage
+      }))
+    }
+    
+    // 如果首页接口返回为空，尝试调用分页接口获取数据
+     if (events.value.length === 0) {
+       console.log('Home API returned empty, trying query API...')
+       // 尝试多种参数格式以匹配后端分页接口
+       const queryRes = await queryShows({ 
+         pageNum: 1, pageSize: 10,
+         page: 1, size: 10,
+         current: 1
+       })
+       console.log('Query API Response:', queryRes)
+       
+       // 尝试解析不同结构的响应
+       let records = []
+       if (queryRes && queryRes.records && Array.isArray(queryRes.records)) {
+         records = queryRes.records
+       } else if (queryRes && queryRes.data && queryRes.data.records && Array.isArray(queryRes.data.records)) {
+         records = queryRes.data.records
+       } else if (queryRes && Array.isArray(queryRes)) {
+         records = queryRes
+       }
+
+       if (records.length > 0) {
+         events.value = records.map(item => ({
+           id: item.id,
+           title: item.title,
+           venue: item.venue || '未知场馆',
+           date: item.showTime || '待定',
+           price: item.minPrice || item.price || 0,
+           category: item.category || '其它',
+           city: item.city || '全国',
+           image: item.coverImage || item.image || defaultImage
+         }))
+       }
+     }
+     
+     // 如果还是没有数据，不再使用Mock数据，而是显示空状态
+     if (events.value.length === 0) {
+       console.warn('API returned empty list')
+     }
+  } catch (error) {
+    console.error('Failed to fetch events:', error)
+    ElMessage.error('获取首页演出数据失败')
+  }
+})
+
+function loadMockData() {
+  // 移除 Mock 数据
+  console.log('Mock data removed')
+}
 
 // 热门榜单 (取前5个)
 const rankings = computed(() => {

@@ -132,7 +132,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { Search, Plus } from '@element-plus/icons-vue'
-import { ElMessageBox, ElMessage } from 'element-plus'
+import { ElMessageBox, ElMessage, ElLoading } from 'element-plus'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '@/store/user'
+import { adminGetShows, adminCreateShow, adminUpdateShow, adminDeleteShow } from '@/api/show'
+import defaultImage from '@/assets/logo.png'
 
 // 动画效果
 onMounted(() => {
@@ -162,28 +166,46 @@ onMounted(() => {
   }
 })
 
-// 导入本地图片
-import eventA from '@/assets/a.png'
-import eventB from '@/assets/b.png'
-import eventC from '@/assets/c.png'
-import eventD from '@/assets/d.png'
-import eventE from '@/assets/e.png'
-import eventF from '@/assets/f.png'
-
+const router = useRouter()
+const userStore = useUserStore()
 const searchQuery = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
+const loading = ref(false)
 
-const events = ref([
-  { id: 1, title: '【上海】周杰伦“嘉年华”世界巡回演唱会', category: '演唱会', city: '上海', date: '2026.05.20 - 05.24', minPrice: 580, maxPrice: 2580, image: eventA, status: 'onsale' },
-  { id: 2, title: '【北京】音乐剧《罗密欧与朱丽叶》', category: '话剧歌剧', city: '北京', date: '2026.06.12 - 06.20', minPrice: 180, maxPrice: 1080, image: eventB, status: 'onsale' },
-  { id: 3, title: '【广州】2026 广州超级音乐节', category: '音乐会', city: '广州', date: '2026.04.15', minPrice: 399, maxPrice: 1299, image: eventC, status: 'onsale' },
-  { id: 4, title: '【深圳】CBA联赛 深圳马可波罗 vs 广东东莞大益', category: '体育', city: '深圳', date: '2026.03.10', minPrice: 100, maxPrice: 800, image: eventD, status: 'onsale' },
-  { id: 5, title: '【上海】陈奕迅 Fear and Dreams 演唱会', category: '演唱会', city: '上海', date: '2026.07.10 - 07.15', minPrice: 680, maxPrice: 2580, image: eventE, status: 'onsale' },
-  { id: 6, title: '【成都】李荣浩“纵横四海”巡回演唱会', category: '演唱会', city: '成都', date: '2026.08.20', minPrice: 380, maxPrice: 1580, image: eventF, status: 'onsale' }
-])
+const events = ref([])
+
+const fetchShows = async () => {
+  loading.value = true
+  try {
+    const res = await adminGetShows({ pageNum: 1, pageSize: 100 })
+    let records = []
+    if (Array.isArray(res)) {
+      records = res
+    } else if (res && res.records) {
+      records = res.records
+    } else if (res && res.data && res.data.records) {
+      records = res.data.records
+    }
+    events.value = records.map(r => ({
+      id: r.id,
+      title: r.name || r.title || '未命名演出',
+      category: r.category || '其它',
+      city: r.region || r.city || '全国',
+      date: r.startTime && r.endTime ? `${r.startTime} - ${r.endTime}` : (r.startTime || '待定'),
+      minPrice: r.price || 0,
+      maxPrice: r.price || 0,
+      image: r.coverImage || r.image || defaultImage,
+      status: r.isOnSale === 1 ? 'onsale' : 'offsale'
+    }))
+  } catch (e) {
+    ElMessage.error('获取演出列表失败')
+  } finally {
+    loading.value = false
+  }
+}
 
 const filteredEvents = computed(() => {
   return events.value.filter(e => 
@@ -199,28 +221,58 @@ const pagedEvents = computed(() => {
 })
 
 const form = ref({
-  title: '',
-  city: '',
+  id: undefined,
+  name: '',
+  venue: '',
+  region: '',
   category: '',
-  minPrice: 0,
-  maxPrice: 0
+  price: 0,
+  startTime: '',
+  endTime: '',
+  isOnSale: 1
 })
 
 const handleAdd = () => {
   isEdit.value = false
-  form.value = { title: '', city: '', category: '', minPrice: 0, maxPrice: 0 }
+  form.value = { id: undefined, name: '', venue: '', region: '', category: '', price: 0, startTime: '', endTime: '', isOnSale: 1 }
   dialogVisible.value = true
 }
 
 const handleEdit = (row) => {
   isEdit.value = true
-  form.value = { ...row }
+  form.value = { 
+    id: row.id,
+    name: row.title,
+    venue: row.venue || '',
+    region: row.city,
+    category: row.category,
+    price: row.minPrice,
+    startTime: row.date?.split(' - ')[0] || row.date || '',
+    endTime: row.date?.includes(' - ') ? row.date.split(' - ')[1] : '',
+    isOnSale: row.status === 'onsale' ? 1 : 0
+  }
   dialogVisible.value = true
 }
 
-const saveForm = () => {
-  ElMessage.success(isEdit.value ? '修改成功' : '添加成功')
-  dialogVisible.value = false
+const saveForm = async () => {
+  const loading = ElLoading.service({ text: '正在保存...', lock: true })
+  try {
+    if (isEdit.value && form.value.id) {
+      const res = await adminUpdateShow(form.value.id, { ...form.value })
+      if (res && res.success) ElMessage.success('修改成功')
+      else ElMessage.error(res?.message || '修改失败')
+    } else {
+      const res = await adminCreateShow({ ...form.value })
+      if (res && res.success) ElMessage.success('添加成功')
+      else ElMessage.error(res?.message || '添加失败')
+    }
+    dialogVisible.value = false
+    await fetchShows()
+  } catch (e) {
+    ElMessage.error('保存异常')
+  } finally {
+    loading.close()
+  }
 }
 
 const handleDelete = (row) => {
@@ -229,11 +281,30 @@ const handleDelete = (row) => {
     cancelButtonText: '取消',
     type: 'error',
     customClass: 'glass-message-box'
-  }).then(() => {
-    events.value = events.value.filter(e => e.id !== row.id)
-    ElMessage.success('删除成功')
+  }).then(async () => {
+    try {
+      const res = await adminDeleteShow(row.id)
+      if (res && res.success) {
+        ElMessage.success('删除成功')
+        await fetchShows()
+      } else {
+        ElMessage.error(res?.message || '删除失败')
+      }
+    } catch (e) {
+      ElMessage.error('删除异常')
+    }
   })
 }
+
+onMounted(() => {
+  const isAdmin = userStore.userInfo?.isAdmin === true || userStore.userInfo?.role === 2
+  if (!isAdmin) {
+    ElMessage.warning('请使用管理员账号登录')
+    router.push('/login')
+    return
+  }
+  fetchShows()
+})
 </script>
 
 <style scoped>
